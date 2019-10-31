@@ -9,12 +9,15 @@ main {
         with( .exchange ) {
             .name = "test_exchange"; 
             .type = "direct";
-            .durable = true
+            .durable = true;
+            .format = "json"
         }
         with( .output_queues ) {
-            .name = "test_queue";
-            .routing_key = "route";
-            .format?: string // default Value, other  possibilities: json
+            .name = "test_queue2";
+            with( .binding ) {
+                .routing_key = "route";
+                .exchange_name = "test_exchange"
+            };
             .durable = true;
             .exclusive = false; 
             .autodelete = true
@@ -25,7 +28,7 @@ main {
     with( message ) {
         .exchange_name = "test_exchange";
         .routing_key = "route";
-        .message = "ciao"
+        .message.pippo.pluto = "ciao"
     }
     writeOnExchange@RabbitMQ( message )
 }

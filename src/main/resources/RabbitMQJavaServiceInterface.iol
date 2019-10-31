@@ -12,7 +12,10 @@ type RabbitMQConnectRequest: void {
     }
     .output_queues*: void {
         .name: string 
-        .routing_key: string
+        .binding*: void {
+                .routing_key: string
+                .exchange_name: string
+        }
         .durable: bool 
         .exclusive: bool 
         .autodelete: bool

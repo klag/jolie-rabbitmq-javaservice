@@ -2,6 +2,7 @@ package org.jolie.rabbitmq;
 
 import com.rabbitmq.client.*;
 import jolie.net.CommMessage;
+import jolie.runtime.AndJarDeps;
 import jolie.runtime.FaultException;
 import jolie.runtime.JavaService;
 import jolie.runtime.Value;
@@ -15,6 +16,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
+@AndJarDeps( { "jolie-js.jar", "json_simple.jar" } )
 public class RabbitMQJavaService extends JavaService {
 
     private Connection connection;
@@ -136,9 +138,6 @@ public class RabbitMQJavaService extends JavaService {
             message.setMessage( request.getFirstChild("message")  );
 
             channel.confirmSelect();
-
-
-
             Exchange exchange = exchanges.get(exchangeName);
             String requestString = "";
             switch( exchange.getFormat() ) {
@@ -154,11 +153,15 @@ public class RabbitMQJavaService extends JavaService {
                     break;
             }
             channel.basicPublish(exchangeName, routingKey,null,requestString.getBytes());
-            channel.waitForConfirmsOrDie();
+            channel.waitForConfirms( 2000 );
         } catch (IOException ex) {
             ex.printStackTrace();
         } catch (InterruptedException ex) {
             ex.printStackTrace();
+        } catch (TimeoutException e) {
+            e.printStackTrace();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
