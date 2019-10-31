@@ -4,10 +4,11 @@ type RabbitMQConnectRequest: void {
     .virtualhost?: string
     .hostname: string 
     .portnumber: int 
-    .exchange: void {
+    .exchange*: void {
         .name: string 
         .type: string 
         .durable: bool
+        .format?: string    // Value | json
     }
     .output_queues*: void {
         .name: string 
@@ -25,7 +26,10 @@ type RabbitMQConnectRequest: void {
             .durable: bool
             .exclusive: bool
             .autodelete: bool 
-            .routing_key: string
+            .binding*: void {
+                .routing_key: string
+                .exchange_name: string
+            }
         }
     }
 }

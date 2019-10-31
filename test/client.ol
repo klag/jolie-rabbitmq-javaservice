@@ -14,6 +14,7 @@ main {
         with( .output_queues ) {
             .name = "test_queue";
             .routing_key = "route";
+            .format?: string // default Value, other  possibilities: json
             .durable = true;
             .exclusive = false; 
             .autodelete = true
@@ -26,5 +27,5 @@ main {
         .routing_key = "route";
         .message = "ciao"
     }
-    //writeOnExchange@RabbitMQ( message )
+    writeOnExchange@RabbitMQ( message )
 }

@@ -12,6 +12,7 @@ import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 public class RabbitMQJavaService extends JavaService {
@@ -19,18 +20,9 @@ public class RabbitMQJavaService extends JavaService {
     private Connection connection;
     private ConnectionFactory factory;
     private Channel channel;
-    final String splitToken="#";
-    ArrayList<String> queueNames;
-    ArrayList<String> responseQueues;
-    ArrayList<String> responseQueuesNames;
-    HashMap<String, String> uniqueIds;
-
-    public RabbitMQJavaService() {
-        uniqueIds = new HashMap<String, String>();
-        responseQueues=new ArrayList<String>();
-        responseQueuesNames=new ArrayList<String>();
-        queueNames=new ArrayList<String>();
-    }
+    HashMap<String, Exchange> exchanges = new HashMap<String, Exchange>();
+    ArrayList<Queue> queues = new ArrayList<Queue>();
+    ArrayList<String> responseQueues = new ArrayList<String>();
 
 
     @RequestResponse
@@ -45,16 +37,22 @@ public class RabbitMQJavaService extends JavaService {
             String hostName = request.getFirstChild("hostname").strValue();
             int portNumber = request.getFirstChild("portnumber").intValue();
 
-            String exchangeName = request.getFirstChild("exchange").getFirstChild("name").strValue();
-            String exchangeType = request.getFirstChild("exchange").getFirstChild("type").strValue();  //direct, fanout, topic
-            if ( !exchangeType.equals("direct") && !exchangeType.equals("fanout") && !exchangeType.equals("topic") ) {
-                throw new FaultException( "ConfigurationFault", "exchange type must be: direct | fanout | topic" );
-            }
-            boolean exchangeDurable = request.getFirstChild("exchange").getFirstChild("durable").boolValue();
+            for ( Value exch : request.getChildren("exchange") ) {
+                String exchangeName = exch.getFirstChild("name").strValue();
+                Exchange exchange = new Exchange(exchangeName);
 
-            String apiType = request.getFirstChild("input_queues").getFirstChild("response_api_type").strValue();
+                exchange.setExchangeType( Exchange.ExchangeType.get(exch.getFirstChild("type").strValue()));
+                if (exch.getChildren("format").size() > 0) {
+                    exchange.setFormat(Exchange.FormatValues.get(exch.getFirstChild("format").strValue()));
+                }
+                exchange.setDurable(exch.getFirstChild("durable").boolValue());
+                exchanges.put(exchangeName, exchange);
+            }
+
+
+            /*String apiType = request.getFirstChild("input_queues").getFirstChild("response_api_type").strValue();
             int maxThread = request.getFirstChild("input_queues").getFirstChild("max_thread").intValue();
-            long millisPullRange = request.getFirstChild("input_queues").getFirstChild("millis_pull_range").longValue();
+            long millisPullRange = request.getFirstChild("input_queues").getFirstChild("millis_pull_range").longValue();*/
 
             factory = new ConnectionFactory();
 
@@ -68,27 +66,51 @@ public class RabbitMQJavaService extends JavaService {
 
             connection = factory.newConnection();
             channel = connection.createChannel();
-            channel.exchangeDeclare( exchangeName,exchangeType, exchangeDurable );
+            for( Map.Entry<String,Exchange> exch : exchanges.entrySet() ) {
+                channel.exchangeDeclare( exch.getKey(), exch.getValue().getExchangeType().getValue(), exch.getValue().getDurable() );
+            }
+
 
             // creating queues
             for( Value q : request.getChildren("output_queues") ) {
-                channel.queueDeclare( q.getFirstChild("name").strValue(), q.getFirstChild("durable").boolValue(), q.getFirstChild("exclusive").boolValue(), q.getFirstChild("autodelete").boolValue(), null );
-                channel.queueBind( q.getFirstChild("name").strValue(), exchangeName, q.getFirstChild("routingKey").strValue() );
+                Queue queue = new Queue( q.getFirstChild("name").strValue() );
+                if ( q.getFirstChild("durable").boolValue() ) {
+                    queue.setDurable( q.getFirstChild("durable").boolValue() );
+                }
+                if ( q.getFirstChild("exclusive").boolValue() ) {
+                    queue.setExclusive(q.getFirstChild("exclusive").boolValue());
+                }
+                if ( q.getFirstChild("autodelete").boolValue() ) {
+                    queue.setAutodelete(q.getFirstChild("autodelete").boolValue());
+                }
+
+                for( Value bindingValue : q.getChildren("binding") ) {
+                    Queue.Binding binding = queue.new Binding( exchanges.get(bindingValue.getFirstChild("exchange_name").strValue()), bindingValue.getFirstChild("routing_key").strValue());
+                    queue.addBinding(binding);
+                }
+                queues.add(queue);
+
+                channel.queueDeclare(queue.getName(), queue.getDurable(), queue.getExclusive(), queue.getAutodelete(), null );
+                for( Map.Entry<String,Queue.Binding> binding : queue.getBindings().entrySet() ) {
+                    channel.queueBind( queue.getName(), binding.getValue().getExchange().getName(),  binding.getValue().getRoutingKey() );
+                }
+
             }
 
-            for( Value q : request.getFirstChild("input_queues").getChildren("queues") ) {
+            /*for( Value q : request.getFirstChild("input_queues").getChildren("queues") ) {
                 channel.queueDeclare( q.getFirstChild("name").strValue(), q.getFirstChild("durable").boolValue(), q.getFirstChild("exclusive").boolValue(), q.getFirstChild("autodelete").boolValue(), null );
                 channel.queueBind( q.getFirstChild("name").strValue(), exchangeName, q.getFirstChild("routing_key").strValue() );
                 responseQueues.add( q.getFirstChild("name").strValue() );
             }
 
             QueueListeningThread queueThread = new QueueListeningThread( apiType, maxThread, millisPullRange, responseQueues );
-            queueThread.start();
+            queueThread.start();*/
         } catch (IOException ex) {
             throw new FaultException("IOException", ex.getMessage() );
         } catch (TimeoutException ex) {
             throw new FaultException("TimeoutException", ex.getMessage() );
         } catch (Exception ex) {
+            ex.printStackTrace();
             throw new FaultException("ConnectionFault", ex.getMessage() );
         }
 
@@ -111,16 +133,26 @@ public class RabbitMQJavaService extends JavaService {
             String exchangeName = request.getFirstChild("exchange_name").strValue();
             String routingKey = request.getFirstChild("routing_key").strValue();
             QueueMessage message = new QueueMessage();
-            message.setMessage( request.getFirstChild("message") );
+            message.setMessage( request.getFirstChild("message")  );
 
-            channel.exchangeDeclare( exchangeName,"direct");
             channel.confirmSelect();
 
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ObjectOutputStream oos = new ObjectOutputStream(baos);
-            oos.writeObject(message);
-            oos.close();
-            String requestString = Base64.getEncoder().encodeToString(baos.toByteArray());
+
+
+            Exchange exchange = exchanges.get(exchangeName);
+            String requestString = "";
+            switch( exchange.getFormat() ) {
+                case VALUE:
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    ObjectOutputStream oos = new ObjectOutputStream(baos);
+                    oos.writeObject(message);
+                    oos.close();
+                    requestString = Base64.getEncoder().encodeToString(baos.toByteArray());
+                    break;
+                case JSON:
+                    requestString = message.getJSONMessage();
+                    break;
+            }
             channel.basicPublish(exchangeName, routingKey,null,requestString.getBytes());
             channel.waitForConfirmsOrDie();
         } catch (IOException ex) {

@@ -1,7 +1,10 @@
 package org.jolie.rabbitmq;
 
+import jolie.js.JsUtils;
 import jolie.runtime.Value;
+import jolie.runtime.typing.Type;
 
+import java.io.IOException;
 import java.io.Serializable;
 
 public class QueueMessage implements Serializable {
@@ -42,6 +45,12 @@ public class QueueMessage implements Serializable {
 
     public void setSessionToken(String sessionToken){
         this.sessionToken=sessionToken;
+    }
+
+    public String getJSONMessage() throws IOException {
+        StringBuilder stringBuilder = new StringBuilder();
+        JsUtils.valueToJsonString( message, true, Type.UNDEFINED, stringBuilder );
+        return stringBuilder.toString();
     }
 
 }

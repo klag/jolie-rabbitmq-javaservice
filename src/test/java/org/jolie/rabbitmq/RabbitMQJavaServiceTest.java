@@ -19,8 +19,9 @@ public class RabbitMQJavaServiceTest {
     private final int portnumber = 5672;
     private final String testExchange = "test_exchange";
     private final String testQueue = "test_queue";
+    private final String testRoutingKey = "test";
 
-    @After
+    //@After
     public void cancel() {
         ConnectionFactory factory = new ConnectionFactory();
 
@@ -47,7 +48,25 @@ public class RabbitMQJavaServiceTest {
     @Test
     public void testConnection() throws FaultException {
         RabbitMQJavaService rabbitMQJavaService = new RabbitMQJavaService();
+        rabbitMQJavaService.connect(getConnectRequest());
+        rabbitMQJavaService.disconnect(Value.create());
+    }
 
+    @Test
+    public void testWriteOnExchanege() throws FaultException {
+
+        RabbitMQJavaService rabbitMQJavaService = new RabbitMQJavaService();
+        rabbitMQJavaService.connect(getConnectRequest());
+
+        Value request = Value.create();
+        request.getFirstChild("exchange_name").setValue(testExchange);
+        request.getFirstChild("routing_key").setValue(testRoutingKey);
+        request.getFirstChild("message").setValue("ciao");
+        rabbitMQJavaService.writeOnExchange(request);
+
+    }
+
+    private Value getConnectRequest() {
         Value request = Value.create();
         request.getFirstChild("username").setValue(username);
         request.getFirstChild("password").setValue(password);
@@ -57,13 +76,14 @@ public class RabbitMQJavaServiceTest {
         request.getFirstChild("exchange").getFirstChild("name").setValue(testExchange);
         request.getFirstChild("exchange").getFirstChild("type").setValue("direct");
         request.getFirstChild("exchange").getFirstChild("durable").setValue(true);
+        request.getFirstChild("exchange").getFirstChild("format").setValue("json");
         request.getFirstChild("output_queues").getFirstChild("name").setValue(testQueue);
-        request.getFirstChild("output_queues").getFirstChild("routing_key").setValue("route");
+        request.getFirstChild("output_queues").getFirstChild("binding").getFirstChild("routing_key").setValue(testRoutingKey);
+        request.getFirstChild("output_queues").getFirstChild("binding").getFirstChild("exchange_name").setValue(testExchange);
         request.getFirstChild("output_queues").getFirstChild("durable").setValue(true);
         request.getFirstChild("output_queues").getFirstChild("exclusive").setValue(false);
         request.getFirstChild("output_queues").getFirstChild("autodelete").setValue(true);
-
-        rabbitMQJavaService.connect(request);
+        return request;
     }
 }
 
