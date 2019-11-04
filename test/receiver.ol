@@ -17,7 +17,8 @@ init {
             .format = "json"
         }
         with( .input_queues ) {
-            .response_api_type = "push";
+            .response_api_type = "pull";
+            .millis_pull_range = 5000;
             with( .queue ) {
                 .name = "test_queue2";
                 with( .binding ) {

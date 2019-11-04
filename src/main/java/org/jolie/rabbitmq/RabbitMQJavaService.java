@@ -10,7 +10,6 @@ import jolie.runtime.Value;
 import jolie.runtime.embedding.RequestResponse;
 
 import java.io.*;
-import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -24,14 +23,8 @@ public class RabbitMQJavaService extends JavaService {
     private Connection connection;
     private ConnectionFactory factory;
     private Channel channel;
-    HashMap<String, Exchange> exchanges = new HashMap<String, Exchange>();
-    ArrayList<Queue> queues = new ArrayList<Queue>();
-    ArrayList<InputQueue> inputQueues = new ArrayList<InputQueue>();
-    String apiType  = "push";
-    int maxThread = 1;
-    long millisPullRange = 1000;
-
-
+    HashMap<String, Exchange> exchanges = new HashMap<>();
+    ArrayList<Queue> queues = new ArrayList<>();
 
     @RequestResponse
     public Value connect (Value request) throws FaultException {
@@ -95,15 +88,11 @@ public class RabbitMQJavaService extends JavaService {
                     if ( q.getChildren("millis_pull_range").size() > 0 ) {
                         inputQueue.setMillisPullRange( q.getFirstChild("millis_pull_range").longValue() );
                     }
-                    if ( q.getChildren("max_thread").size() > 0 ) {
-                        inputQueue.setMaxThread(q.getFirstChild("max_thread").intValue());
-                    }
-
-                    inputQueues.add(inputQueue);
                     declareQueue(inputQueue);
+                    QueueListeningThread queueThread = new QueueListeningThread(inputQueue);
+                    queueThread.start();
                 }
-                QueueListeningThread queueThread = new QueueListeningThread( apiType, maxThread, millisPullRange, getInputQueueNames() );
-                queueThread.start();
+
             }
 
         } catch (IOException ex) {
@@ -189,89 +178,76 @@ public class RabbitMQJavaService extends JavaService {
         }
     }
 
-    private class QueueListeningThread extends Thread{
-        private String apiType="";
-        private int maxThread;
-        private long pullRangeMillis;
-        private ArrayList<String> queues;
+    private class QueueListeningThread extends Thread {
+        private InputQueue inputQueue;
         ArrayList<DefaultConsumer> consumers;
 
-        public QueueListeningThread(String apiType,int maxThread,long pullRangeMillis,ArrayList<String> queues){
-            this.apiType = apiType;
-            this.maxThread = maxThread;
-            this.pullRangeMillis = pullRangeMillis;
-            this.queues = queues;
+        public QueueListeningThread(InputQueue inputQueue){
+            this.inputQueue = inputQueue;
         }
 
         @Override
         public void run(){
-            if(this.apiType.equalsIgnoreCase("pull")){
-                startPull( this.maxThread, this.pullRangeMillis );
-            }else if( this.apiType.equalsIgnoreCase("push" ) ){
+            if( this.inputQueue.getResponseApiType().getValue().equalsIgnoreCase("pull") ){
+                startPull( this.inputQueue.getMillisPullRange() );
+            }else if( this.inputQueue.getResponseApiType().getValue().equalsIgnoreCase("push" ) ){
                 startPush();
             }
         }
 
         private void startPush(){
             consumers = new ArrayList<DefaultConsumer>();
-            for(int i = 0; i < inputQueues.size(); i++ ) {
-                try {
-                    final String queueName = inputQueues.get(i).getName();
-                    final FormatValues messageFormat = inputQueues.get(i).getFormat();
-                    DefaultConsumer consumer = new DefaultConsumer( channel ) {
-                        @Override
-                        public void handleDelivery (String consumerTag, Envelope envelope,
-                                                    AMQP.BasicProperties properties, byte[] body) throws UnsupportedEncodingException
-                        {
-                            Value responseValue = Value.create();
+            try {
+                final FormatValues messageFormat = inputQueue.getFormat();
+                DefaultConsumer consumer = new DefaultConsumer( channel ) {
+                    @Override
+                    public void handleDelivery (String consumerTag, Envelope envelope,
+                                                AMQP.BasicProperties properties, byte[] body) throws UnsupportedEncodingException
+                    {
+                        Value responseValue = Value.create();
 
-                            switch (messageFormat) {
-                                case JSON:
-                                    try {
-                                        JsUtils.parseJsonIntoValue(new StringReader( new String(body) ), responseValue, true );
-                                    } catch (IOException e) {
-                                        e.printStackTrace();
-                                    }
-                                    break;
-                                case VALUE:
-                                    QueueMessage response = null;
-                                    byte [] data = Base64.getDecoder().decode(new String(body));
-                                    try{
-                                        ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data));
-                                        response = (QueueMessage) ois.readObject();
-                                        ois.close();
-                                        responseValue = response.getMessage();
-                                    } catch(IOException e){
-                                        e.printStackTrace();
-                                    } catch (ClassNotFoundException ex) {
-                                        ex.printStackTrace();
-                                    }
-                                    break;
-                            }
-
-                            Value operationCallback = Value.create();
-                            operationCallback.getFirstChild("message").deepCopy( responseValue ) ;
-                            operationCallback.getFirstChild("queue_name").setValue( queueName );
-                            CommMessage request=CommMessage.createRequest(receivingOperation,"/",operationCallback);
-                            sendMessage(request);
+                        switch (messageFormat) {
+                            case JSON:
+                                try {
+                                    JsUtils.parseJsonIntoValue(new StringReader( new String(body) ), responseValue, true );
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+                                break;
+                            case VALUE:
+                                QueueMessage response = null;
+                                byte [] data = Base64.getDecoder().decode(new String(body));
+                                try{
+                                    ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data));
+                                    response = (QueueMessage) ois.readObject();
+                                    ois.close();
+                                    responseValue = response.getMessage();
+                                } catch(IOException e){
+                                    e.printStackTrace();
+                                } catch (ClassNotFoundException ex) {
+                                    ex.printStackTrace();
+                                }
+                                break;
                         }
-                    };
-                    consumers.add( consumer );
-                    channel.basicConsume( queueName, true, consumer);
-                } catch (IOException ex) {
-                    ex.printStackTrace();
-                }
+
+                        Value operationCallback = Value.create();
+                        operationCallback.getFirstChild("message").deepCopy( responseValue ) ;
+                        operationCallback.getFirstChild("queue_name").setValue( inputQueue.getName() );
+                        CommMessage request=CommMessage.createRequest(receivingOperation,"/",operationCallback);
+                        sendMessage(request);
+                    }
+                };
+                consumers.add( consumer );
+                channel.basicConsume( inputQueue.getName(), true, consumer);
+            } catch (IOException ex) {
+                ex.printStackTrace();
             }
-
-
         }
 
-        private void startPull(int maxThread,long pullRangeMillis){
+        private void startPull(long pullRangeMillis){
 
             while( true ){
-                if(ManagementFactory.getThreadMXBean().getThreadCount() < maxThread){
-                    getMessage( maxThread );
-                }
+                getMessage( );
                 try {
                     Thread.sleep(pullRangeMillis);
                 } catch (InterruptedException ex) {
@@ -280,56 +256,51 @@ public class RabbitMQJavaService extends JavaService {
             }
         }
 
-        private void getMessage(int maxThread){
+        private void getMessage(){
 
-            boolean message = true;
-            while( message ) {
-                int count = 0;
-                for(int i = 0; i < queues.size(); i++ ) {
-                    if(ManagementFactory.getThreadMXBean().getThreadCount() < maxThread)
-                    {
-                        try {
-                            boolean autoAck=false;
-                            GetResponse response = null;
-                            response = channel.basicGet( queues.get(i), autoAck );
-                            if( response == null ) {
-                                count++;
-                            } else{
-                                byte[] body = response.getBody();
-                                long deliveryTag = response.getEnvelope().getDeliveryTag();
-                                QueueMessage callback = null;
-                                byte [] data = Base64.getDecoder().decode(new String(body));
-                                ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data));
-                                callback = (QueueMessage) ois.readObject();
-                                ois.close();
-                                Value messageFromQueue=Value.create();
-                                messageFromQueue.getFirstChild("message").deepCopy(callback.getMessage());
-                                CommMessage request=CommMessage.createRequest(receivingOperation,"/",messageFromQueue);
-                                sendMessage(request);
+            final String queueName = inputQueue.getName();
+            final FormatValues messageFormat = inputQueue.getFormat();
+            try {
+                boolean autoAck = false;
+                GetResponse response = null;
 
-                                channel.basicAck(deliveryTag, false);
+                response = channel.basicGet( inputQueue.getName(), autoAck );
+                if( response != null ) {
+                    Value responseValue = Value.create();
+                    byte[] body = response.getBody();
+                    long deliveryTag = response.getEnvelope().getDeliveryTag();
+                    switch (messageFormat) {
+                        case VALUE:
+                            QueueMessage callback = null;
+                            byte [] data = Base64.getDecoder().decode(new String(body));
+                            ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data));
+                            callback = (QueueMessage) ois.readObject();
+                            ois.close();
+                            responseValue = callback.getMessage();
+                            break;
+                        case JSON:
+                            try {
+                                JsUtils.parseJsonIntoValue(new StringReader( new String(body) ), responseValue, true );
+                            } catch (IOException e) {
+                                e.printStackTrace();
                             }
-                        } catch (IOException ex) {
-                           ex.printStackTrace();
-                        } catch (ClassNotFoundException ex) {
-                            ex.printStackTrace();
-                        }
+                            break;
                     }
+
+                    Value messageFromQueue=Value.create();
+                    messageFromQueue.getFirstChild("message").deepCopy( responseValue );
+                    messageFromQueue.getFirstChild("queue_name").setValue( inputQueue.getName() );
+                    CommMessage request=CommMessage.createRequest(receivingOperation,"/",messageFromQueue);
+                    sendMessage(request);
+
+                    channel.basicAck(deliveryTag, false);
                 }
-                if( count == queues.size() ) {
-                    message=false;
-                }
+            } catch (IOException ex) {
+               ex.printStackTrace();
+            } catch (ClassNotFoundException ex) {
+                ex.printStackTrace();
             }
         }
-    }
 
-    private ArrayList<String> getInputQueueNames() {
-        ArrayList<String> list = new ArrayList<>();
-        inputQueues.stream().forEach(
-                q -> {
-                    list.add(q.getName());
-                }
-        );
-        return list;
     }
 }

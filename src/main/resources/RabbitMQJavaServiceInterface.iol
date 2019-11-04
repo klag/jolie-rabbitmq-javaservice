@@ -26,7 +26,7 @@ type RabbitMQConnectRequest: void {
         .response_api_type: string  // push | pull, default is push
         .max_thread?: int           // used only when apy type is pull, default is 1
         .millis_pull_range?: long   // used only when apy type is pull, default is 1000
-        .queue*: Queue
+        .queue: Queue
         .format?: string
     }
 }

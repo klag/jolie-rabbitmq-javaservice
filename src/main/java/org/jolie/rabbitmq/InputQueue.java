@@ -39,7 +39,6 @@ public class InputQueue extends Queue {
 
     private FormatValues format = FormatValues.JSON;
     private ResponseApiType responseApiType = ResponseApiType.PUSH;
-    private int maxThread = 1;
     private long millisPullRange = 1000;
 
     public InputQueue(String name) {
@@ -60,14 +59,6 @@ public class InputQueue extends Queue {
 
     public ResponseApiType getResponseApiType() {
         return responseApiType;
-    }
-
-    public void setMaxThread(int maxThread) {
-        this.maxThread = maxThread;
-    }
-
-    public int getMaxThread() {
-        return maxThread;
     }
 
     public void setMillisPullRange(long millisPullRange) {
