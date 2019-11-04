@@ -61,7 +61,7 @@ public class RabbitMQJavaServiceTest {
         Value request = Value.create();
         request.getFirstChild("exchange_name").setValue(testExchange);
         request.getFirstChild("routing_key").setValue(testRoutingKey);
-        request.getFirstChild("message").setValue("ciao");
+        request.getFirstChild("message").getFirstChild("pippo").getFirstChild("pluto").setValue("ciao");
         rabbitMQJavaService.writeOnExchange(request);
 
     }

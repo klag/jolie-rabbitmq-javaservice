@@ -1,6 +1,7 @@
 package org.jolie.rabbitmq;
 
 import com.rabbitmq.client.*;
+import jolie.js.JsUtils;
 import jolie.net.CommMessage;
 import jolie.runtime.AndJarDeps;
 import jolie.runtime.FaultException;
@@ -19,12 +20,17 @@ import java.util.concurrent.TimeoutException;
 @AndJarDeps( { "jolie-js.jar", "json_simple.jar" } )
 public class RabbitMQJavaService extends JavaService {
 
+    private final String receivingOperation = "receiveMessage";
     private Connection connection;
     private ConnectionFactory factory;
     private Channel channel;
     HashMap<String, Exchange> exchanges = new HashMap<String, Exchange>();
     ArrayList<Queue> queues = new ArrayList<Queue>();
-    ArrayList<String> responseQueues = new ArrayList<String>();
+    ArrayList<InputQueue> inputQueues = new ArrayList<InputQueue>();
+    String apiType  = "push";
+    int maxThread = 1;
+    long millisPullRange = 1000;
+
 
 
     @RequestResponse
@@ -45,16 +51,11 @@ public class RabbitMQJavaService extends JavaService {
 
                 exchange.setExchangeType( Exchange.ExchangeType.get(exch.getFirstChild("type").strValue()));
                 if (exch.getChildren("format").size() > 0) {
-                    exchange.setFormat(Exchange.FormatValues.get(exch.getFirstChild("format").strValue()));
+                    exchange.setFormat(FormatValues.get(exch.getFirstChild("format").strValue()));
                 }
                 exchange.setDurable(exch.getFirstChild("durable").boolValue());
                 exchanges.put(exchangeName, exchange);
             }
-
-
-            /*String apiType = request.getFirstChild("input_queues").getFirstChild("response_api_type").strValue();
-            int maxThread = request.getFirstChild("input_queues").getFirstChild("max_thread").intValue();
-            long millisPullRange = request.getFirstChild("input_queues").getFirstChild("millis_pull_range").longValue();*/
 
             factory = new ConnectionFactory();
 
@@ -76,38 +77,37 @@ public class RabbitMQJavaService extends JavaService {
             // creating queues
             for( Value q : request.getChildren("output_queues") ) {
                 Queue queue = new Queue( q.getFirstChild("name").strValue() );
-                if ( q.getFirstChild("durable").boolValue() ) {
-                    queue.setDurable( q.getFirstChild("durable").boolValue() );
-                }
-                if ( q.getFirstChild("exclusive").boolValue() ) {
-                    queue.setExclusive(q.getFirstChild("exclusive").boolValue());
-                }
-                if ( q.getFirstChild("autodelete").boolValue() ) {
-                    queue.setAutodelete(q.getFirstChild("autodelete").boolValue());
-                }
-
-                for( Value bindingValue : q.getChildren("binding") ) {
-                    Queue.Binding binding = queue.new Binding( exchanges.get(bindingValue.getFirstChild("exchange_name").strValue()), bindingValue.getFirstChild("routing_key").strValue());
-                    queue.addBinding(binding);
-                }
+                fillQueueParameter(q, queue);
                 queues.add(queue);
+                declareQueue(queue);
+            }
 
-                channel.queueDeclare(queue.getName(), queue.getDurable(), queue.getExclusive(), queue.getAutodelete(), null );
-                for( Map.Entry<String,Queue.Binding> binding : queue.getBindings().entrySet() ) {
-                    channel.queueBind( queue.getName(), binding.getValue().getExchange().getName(),  binding.getValue().getRoutingKey() );
+            if ( request.getChildren("input_queues").size() > 0 ) {
+                for( Value q : request.getChildren("input_queues") ) {
+                    InputQueue inputQueue = new InputQueue(q.getFirstChild("queue").getFirstChild("name").strValue());
+                    fillQueueParameter(q.getFirstChild("queue"),inputQueue);
+                    if ( q.getChildren("format").size() > 0 ) {
+                        inputQueue.setFormat(FormatValues.get( q.getFirstChild("format").strValue()));
+                    }
+                    if ( q.getChildren("response_api_type").size() > 0 ) {
+                        inputQueue.setResponseApiType(InputQueue.ResponseApiType.get(q.getFirstChild("response_api_type").strValue()));
+                    }
+                    if ( q.getChildren("millis_pull_range").size() > 0 ) {
+                        inputQueue.setMillisPullRange( q.getFirstChild("millis_pull_range").longValue() );
+                    }
+                    if ( q.getChildren("max_thread").size() > 0 ) {
+                        inputQueue.setMaxThread(q.getFirstChild("max_thread").intValue());
+                    }
+
+                    inputQueues.add(inputQueue);
+                    declareQueue(inputQueue);
                 }
-
+                QueueListeningThread queueThread = new QueueListeningThread( apiType, maxThread, millisPullRange, getInputQueueNames() );
+                queueThread.start();
             }
 
-            /*for( Value q : request.getFirstChild("input_queues").getChildren("queues") ) {
-                channel.queueDeclare( q.getFirstChild("name").strValue(), q.getFirstChild("durable").boolValue(), q.getFirstChild("exclusive").boolValue(), q.getFirstChild("autodelete").boolValue(), null );
-                channel.queueBind( q.getFirstChild("name").strValue(), exchangeName, q.getFirstChild("routing_key").strValue() );
-                responseQueues.add( q.getFirstChild("name").strValue() );
-            }
-
-            QueueListeningThread queueThread = new QueueListeningThread( apiType, maxThread, millisPullRange, responseQueues );
-            queueThread.start();*/
         } catch (IOException ex) {
+            ex.printStackTrace();
             throw new FaultException("IOException", ex.getMessage() );
         } catch (TimeoutException ex) {
             throw new FaultException("TimeoutException", ex.getMessage() );
@@ -165,6 +165,30 @@ public class RabbitMQJavaService extends JavaService {
         }
     }
 
+    private void fillQueueParameter(Value q, Queue queue) {
+        if ( q.getFirstChild("durable").boolValue() ) {
+            queue.setDurable( q.getFirstChild("durable").boolValue() );
+        }
+        if ( q.getFirstChild("exclusive").boolValue() ) {
+            queue.setExclusive(q.getFirstChild("exclusive").boolValue());
+        }
+        if ( q.getFirstChild("autodelete").boolValue() ) {
+            queue.setAutodelete(q.getFirstChild("autodelete").boolValue());
+        }
+
+        for( Value bindingValue : q.getChildren("binding") ) {
+            Queue.Binding binding = queue.new Binding( exchanges.get(bindingValue.getFirstChild("exchange_name").strValue()), bindingValue.getFirstChild("routing_key").strValue());
+            queue.addBinding(binding);
+        }
+    }
+
+    private void declareQueue(Queue queue) throws IOException {
+        channel.queueDeclare(queue.getName(), queue.getDurable(), queue.getExclusive(), queue.getAutodelete(), null );
+        for( Map.Entry<String,Queue.Binding> binding : queue.getBindings().entrySet() ) {
+            channel.queueBind( queue.getName(), binding.getValue().getExchange().getName(),  binding.getValue().getRoutingKey() );
+        }
+    }
+
     private class QueueListeningThread extends Thread{
         private String apiType="";
         private int maxThread;
@@ -190,30 +214,45 @@ public class RabbitMQJavaService extends JavaService {
 
         private void startPush(){
             consumers = new ArrayList<DefaultConsumer>();
-            for(int i=0; i < queues.size(); i++ ) {
+            for(int i = 0; i < inputQueues.size(); i++ ) {
                 try {
-                    final String queueName = queues.get(i);
+                    final String queueName = inputQueues.get(i).getName();
+                    final FormatValues messageFormat = inputQueues.get(i).getFormat();
                     DefaultConsumer consumer = new DefaultConsumer( channel ) {
                         @Override
                         public void handleDelivery (String consumerTag, Envelope envelope,
                                                     AMQP.BasicProperties properties, byte[] body) throws UnsupportedEncodingException
                         {
-                            QueueMessage response=null;
-                            byte [] data = Base64.getDecoder().decode(new String(body));
-                            try{
-                                ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data));
-                                response = (QueueMessage) ois.readObject();
-                                ois.close();
-                            } catch(IOException e){
-                                e.printStackTrace();
-                            } catch (ClassNotFoundException ex) {
-                                ex.printStackTrace();
+                            Value responseValue = Value.create();
+
+                            switch (messageFormat) {
+                                case JSON:
+                                    try {
+                                        JsUtils.parseJsonIntoValue(new StringReader( new String(body) ), responseValue, true );
+                                    } catch (IOException e) {
+                                        e.printStackTrace();
+                                    }
+                                    break;
+                                case VALUE:
+                                    QueueMessage response = null;
+                                    byte [] data = Base64.getDecoder().decode(new String(body));
+                                    try{
+                                        ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data));
+                                        response = (QueueMessage) ois.readObject();
+                                        ois.close();
+                                        responseValue = response.getMessage();
+                                    } catch(IOException e){
+                                        e.printStackTrace();
+                                    } catch (ClassNotFoundException ex) {
+                                        ex.printStackTrace();
+                                    }
+                                    break;
                             }
 
-                            Value operationCallback=Value.create();
-                            operationCallback.getFirstChild("message").deepCopy(response.getMessage());
+                            Value operationCallback = Value.create();
+                            operationCallback.getFirstChild("message").deepCopy( responseValue ) ;
                             operationCallback.getFirstChild("queue_name").setValue( queueName );
-                            CommMessage request=CommMessage.createRequest("receiveMessage","/",operationCallback);
+                            CommMessage request=CommMessage.createRequest(receivingOperation,"/",operationCallback);
                             sendMessage(request);
                         }
                     };
@@ -265,7 +304,7 @@ public class RabbitMQJavaService extends JavaService {
                                 ois.close();
                                 Value messageFromQueue=Value.create();
                                 messageFromQueue.getFirstChild("message").deepCopy(callback.getMessage());
-                                CommMessage request=CommMessage.createRequest("_receiveResponse","/",messageFromQueue);
+                                CommMessage request=CommMessage.createRequest(receivingOperation,"/",messageFromQueue);
                                 sendMessage(request);
 
                                 channel.basicAck(deliveryTag, false);
@@ -282,5 +321,15 @@ public class RabbitMQJavaService extends JavaService {
                 }
             }
         }
+    }
+
+    private ArrayList<String> getInputQueueNames() {
+        ArrayList<String> list = new ArrayList<>();
+        inputQueues.stream().forEach(
+                q -> {
+                    list.add(q.getName());
+                }
+        );
+        return list;
     }
 }

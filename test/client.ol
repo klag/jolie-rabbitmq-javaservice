@@ -28,7 +28,7 @@ main {
     with( message ) {
         .exchange_name = "test_exchange";
         .routing_key = "route";
-        .message.pippo.pluto = "ciao"
+        .message.pippo.pluto = args[ 0 ]
     }
     writeOnExchange@RabbitMQ( message )
 }

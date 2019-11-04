@@ -1,3 +1,14 @@
+type Queue: void {
+    .name: string 
+    .binding*: void {
+            .routing_key: string
+            .exchange_name: string
+    }
+    .durable: bool 
+    .exclusive: bool 
+    .autodelete: bool
+}
+
 type RabbitMQConnectRequest: void {
     .username: string
     .password: string
@@ -10,30 +21,13 @@ type RabbitMQConnectRequest: void {
         .durable: bool
         .format?: string    // Value | json
     }
-    .output_queues*: void {
-        .name: string 
-        .binding*: void {
-                .routing_key: string
-                .exchange_name: string
-        }
-        .durable: bool 
-        .exclusive: bool 
-        .autodelete: bool
-    }
-    .input_queues?: void {
-        .response_api_type: string 
-        .max_thread: int 
-        .millis_pull_range: long
-        .queues*: void {
-            .name: string 
-            .durable: bool
-            .exclusive: bool
-            .autodelete: bool 
-            .binding*: void {
-                .routing_key: string
-                .exchange_name: string
-            }
-        }
+    .output_queues*: Queue
+    .input_queues*: void {
+        .response_api_type: string  // push | pull, default is push
+        .max_thread?: int           // used only when apy type is pull, default is 1
+        .millis_pull_range?: long   // used only when apy type is pull, default is 1000
+        .queue*: Queue
+        .format?: string
     }
 }
 
@@ -44,7 +38,7 @@ type RabbitMQWriteOnExchangeRequest: void {
 }
 
 type ReceiveMessageFromRabbitMQ: void {
-    .message: void 
+    .message: undefined 
     .queue_name: string
 }
 
