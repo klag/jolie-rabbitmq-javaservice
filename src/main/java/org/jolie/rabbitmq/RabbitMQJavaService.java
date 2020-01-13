@@ -209,7 +209,7 @@ public class RabbitMQJavaService extends JavaService {
                         switch (messageFormat) {
                             case JSON:
                                 try {
-                                    JsUtils.parseJsonIntoValue(new StringReader( new String(body) ), responseValue, true );
+                                    JsUtils.parseJsonIntoValue(new StringReader( new String(body) ), responseValue, false );
                                 } catch (IOException e) {
                                     e.printStackTrace();
                                 }
@@ -280,7 +280,7 @@ public class RabbitMQJavaService extends JavaService {
                             break;
                         case JSON:
                             try {
-                                JsUtils.parseJsonIntoValue(new StringReader( new String(body) ), responseValue, true );
+                                JsUtils.parseJsonIntoValue(new StringReader( new String(body) ), responseValue, false );
                             } catch (IOException e) {
                                 e.printStackTrace();
                             }
