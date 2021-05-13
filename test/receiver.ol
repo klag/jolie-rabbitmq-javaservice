@@ -1,9 +1,20 @@
-include "../src/main/resources/RabbitMQJavaServiceInterface.iol"
-include "string_utils.iol"
-include "console.iol"
+from  @jolie.RabbitMQ.RabbitMQ import RabbitMQ
+from  @jolie.RabbitMQ.RabbitMQ import RabbitMQJavaServiceListenerInterface
+from console import Console
+from string_utils import StringUtils
 
 execution{ concurrent }
+service Reciver{
 
+embed RabbitMQ as RabbitMQ
+embed Console as Console
+embed StringUtils as StringUtils
+
+inputPort PortName {
+    Location: local
+    Protocol: sodep
+    Interfaces: RabbitMQJavaServiceListenerInterface
+}
 init {
     with( conf ) {
         .username = "guest";
@@ -40,4 +51,6 @@ main {
         valueToPrettyString@StringUtils( request )( s )
         println@Console( s )()
     
+}
+
 }
