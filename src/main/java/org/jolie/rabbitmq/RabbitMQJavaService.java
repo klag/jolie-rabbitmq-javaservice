@@ -265,35 +265,37 @@ public class RabbitMQJavaService extends JavaService {
                 GetResponse response = null;
 
                 response = channel.basicGet( inputQueue.getName(), autoAck );
-                if( response != null ) {
+                if (response != null) {
                     Value responseValue = Value.create();
-                    byte[] body = response.getBody();
-                    long deliveryTag = response.getEnvelope().getDeliveryTag();
-                    switch (messageFormat) {
-                        case VALUE:
-                            QueueMessage callback = null;
-                            byte [] data = Base64.getDecoder().decode(new String(body));
-                            ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data));
-                            callback = (QueueMessage) ois.readObject();
-                            ois.close();
-                            responseValue = callback.getMessage();
-                            break;
-                        case JSON:
-                            try {
-                                JsUtils.parseJsonIntoValue(new StringReader( new String(body) ), responseValue, false );
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                            break;
+                    if (response.getBody().length > 0) {
+                        byte[] body = response.getBody();
+
+                        long deliveryTag = response.getEnvelope().getDeliveryTag();
+                        switch (messageFormat) {
+                            case VALUE:
+                                QueueMessage callback = null;
+                                byte[] data = Base64.getDecoder().decode(new String(body));
+                                ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data));
+                                callback = (QueueMessage) ois.readObject();
+                                ois.close();
+                                responseValue = callback.getMessage();
+                                break;
+                            case JSON:
+                                try {
+                                    JsUtils.parseJsonIntoValue(new StringReader(new String(body)), responseValue, false);
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+                                break;
+                        }
+
+                        Value messageFromQueue = Value.create();
+                        messageFromQueue.getFirstChild("message").deepCopy(responseValue);
+                        messageFromQueue.getFirstChild("queue_name").setValue(inputQueue.getName());
+                        CommMessage request = CommMessage.createRequest(receivingOperation, "/", messageFromQueue);
+                        sendMessage(request);
+                        channel.basicAck(deliveryTag, false);
                     }
-
-                    Value messageFromQueue=Value.create();
-                    messageFromQueue.getFirstChild("message").deepCopy( responseValue );
-                    messageFromQueue.getFirstChild("queue_name").setValue( inputQueue.getName() );
-                    CommMessage request=CommMessage.createRequest(receivingOperation,"/",messageFromQueue);
-                    sendMessage(request);
-
-                    channel.basicAck(deliveryTag, false);
                 }
             } catch (IOException ex) {
                ex.printStackTrace();

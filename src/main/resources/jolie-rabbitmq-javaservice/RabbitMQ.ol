@@ -71,7 +71,7 @@ inputPort ip {
   foreign java {
     class: "org.jolie.rabbitmq.RabbitMQJavaService"
     }
-  
+
 }
 
 
