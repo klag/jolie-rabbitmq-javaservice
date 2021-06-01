@@ -1,5 +1,7 @@
-include "../src/main/resources/RabbitMQJavaServiceInterface.iol"
+from  @jolie.RabbitMQ.RabbitMQ import RabbitMQ
 
+service Client {
+ embed RabbitMQ as RabbitMQ
 main {
     with( conf ) {
         .username = "guest";
@@ -7,7 +9,7 @@ main {
         .hostname = "localhost";
         .portnumber = 5672;
         with( .exchange ) {
-            .name = "test_exchange"; 
+            .name = "test_exchange";
             .type = "direct";
             .durable = true;
             .format = "json"
@@ -19,7 +21,7 @@ main {
                 .exchange_name = "test_exchange"
             };
             .durable = true;
-            .exclusive = false; 
+            .exclusive = false;
             .autodelete = true
         }
     }
@@ -32,3 +34,7 @@ main {
     }
     writeOnExchange@RabbitMQ( message )
 }
+
+
+}
+

@@ -59,18 +59,20 @@ interface RabbitMQJavaServiceListenerInterface {
         receiveMessage( ReceiveMessageFromRabbitMQ )
 }
 
-outputPort RabbitMQ {
-    Interfaces: RabbitMQJavaServiceInterface
+
+
+service RabbitMQ {
+
+inputPort ip {
+        location:"local"
+        interfaces: RabbitMQJavaServiceInterface
+    }
+
+  foreign java {
+    class: "org.jolie.rabbitmq.RabbitMQJavaService"
+    }
+
 }
 
-inputPort MySelf {
-    Location: "local"
-    Protocol: sodep
-    Interfaces: RabbitMQJavaServiceListenerInterface
-}
 
-embedded {
-    Java: 
-    "org.jolie.rabbitmq.RabbitMQJavaService" in RabbitMQ
-}
 
